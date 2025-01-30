@@ -15,11 +15,17 @@ from pathlib import Path
 
 from espnet2.fileio.read_text import read_2columns_text
 
+log_file_path = "/projects/bcey/shan1/espnet/egs2/tedlium2/speechlm1/delta/concat.log"
+import os
+os.makedirs(os.path.dirname(log_file_path), exist_ok=True)
 logging.basicConfig(
     format="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
     datefmt="%Y-%m-%d %H:%M:%S",
     level=os.environ.get("LOGLEVEL", "INFO").upper(),
-    stream=sys.stdout,
+    handlers=[
+        logging.FileHandler(log_file_path),
+        logging.StreamHandler(sys.stdout),
+    ],
 )
 
 def get_parser():
@@ -45,21 +51,15 @@ def get_parser():
     parser.add_argument(
         "--concat_method",
         type=str,
-        default="number",
-        choices=["number", "bucket"],
+        default="bucket",
+        choices=["bucket"],
         help="The concat method",
     )
     parser.add_argument(
         "--max_len",
         type=int,
-        default="4000",
-        help="The length limit of each long-form example",
-    )
-    parser.add_argument(
-        "--n_concat",
-        type=int,
-        default="2",
-        help="The number of examples in concat, when concat_method == number",
+        default="120",
+        help="The duration of the chuncks in seconds.",
     )
 
     return parser
@@ -76,7 +76,7 @@ def main():
     length_dict = {e: None for e in json_dict["examples"]}
     task = json_dict["task"]
 
-    shape_file = args.input_data_json.parent / "stats" / "dec_seq_shape"
+    shape_file = args.input_data_json.parent / "stats" / "dec_seq_shape" # length of feature
     if not shape_file.is_file():
         raise ValueError(f"The input data.json doesn't have shape file: {shape_file}")
     for line in open(shape_file):
@@ -110,16 +110,7 @@ def main():
     # (3) concat: assign uid for each long-form example
     concat_examples = []
     for group in groups:
-        if args.concat_method == "number":
-            concat_examples.extend(
-                concat_by_number(
-                    group,
-                    length_dict=length_dict,
-                    n_concat=args.n_concat,
-                    max_len=args.max_len,
-                )
-            )
-        elif args.concat_method == "bucket":
+        if args.concat_method == "bucket":
             concat_examples.extend(
                 concat_by_bucket(
                     group,
@@ -170,35 +161,46 @@ def main():
     json_dict["data_files"] = concat_data_triplets
     json_dict["examples"] = ["_".join(uid_list) for uid_list in concat_examples]
     json_dict["num_examples"] = len(json_dict["examples"])
-
     with open(args.output_dir / "data.json", "wb") as writer:
         writer.write(
             json.dumps(json_dict, indent=4, ensure_ascii=False, sort_keys=False).encode(
                 "utf_8"
             )
         )
-
-    
-def concat_by_number(group, length_dict, n_concat, max_len):
-    ans = []
-    count = 0
-    while count < len(group):
-        example = group[count: min(count + n_concat, len(group))]
-        if sum([length_dict[uid] for uid in example]) < max_len:
-            ans.append(example)
-        else:
-            logging.info(
-                f"The summed length of these examples exceeds {max_len}: {example} "
-                f"So skip concatenating them"
-            )
-            for uid in example:
-                ans.append([uid])
-        
-        count += n_concat
-    return ans
             
-def concat_by_bucket(group, length_dict, max_len):
-    raise NotImplementedError
+def concat_by_bucket(group, max_len=120):  # 60*5 = 300 
+    """
+    Concatenate items in buckets based on max_len.
+    
+    Args:
+        group (list): List of item IDs (assumes format includes `-start-end`).
+        max_len (float): Maximum allowed length for each bucket.
+        
+    Returns:
+        list: List of grouped items (buckets).
+    """
+    ans = []  # List of concatenated buckets
+    group = sorted(group)  # Sort group for consistent processing
+    curr_duration = float(0)  # Track current bucket's duration
+    example = []  # Current bucket
+
+    for item in group:
+
+        # Extract start and end times from item (e.g., `utt-0-300`)
+        start, end = item.split("-")[-2:]
+        duration = (float(end) - float(start)) / 100  # Convert duration to seconds
+
+
+        curr_duration += duration  # Add item's duration to current bucket
+        example.append(item)
+
+        # Check if max_len is exceeded
+        if curr_duration > max_len:
+            logging.info(f"{example} duration is: {curr_duration} > {max_len}")
+            ans.append(example)  # Save current bucket
+            example = [item]  # Start a new bucket
+            curr_duration = duration
+    return ans
         
 
 if __name__ == "__main__":

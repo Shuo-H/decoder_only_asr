@@ -26,7 +26,7 @@ min() {
 SECONDS=0
 
 # General configuration
-stage=1              # Processes starts from the specified stage.
+stage=8              # Processes starts from the specified stage.
 stop_stage=10     # Processes is stopped at the specified stage.
 skip_data_prep=false # Skip data preparation stages.
 skip_train=false     # Skip training stages.
@@ -543,7 +543,7 @@ if ! ${skip_train}; then
             # shellcheck disable=SC2046,SC2086
             ${train_cmd} JOB=1:"${nj}" ${this_stats_dir}/logs/collect_stat.JOB.log \
                 ${python} -m "espnet2.bin.speechlm_train" \
-                    --collect_stats true \
+                    --collect_stats false \
                     --use_preprocessor true \
                     --token_list ${token_list_dir}/token_list.json \
                     --token_bias ${token_list_dir}/token_bias.json \
@@ -603,22 +603,22 @@ if ! ${skip_train}; then
                 log "${data_json} doesn't have length statistics. Please rerun stage 7" || exit 1;
             fi
 
-            if [ ! -f ${stats_dir}/split${global_ngpu}/1/dec_seq_shape ]; then
-                log "Split ${data_json} into ${global_ngpu} shards for training"
-                ${python} pyscripts/utils/split_data_jsons.py \
-                    --json_files ${data_json} \
-                    --nj ${global_ngpu} \
-                    --output_dir ${stats_dir}
+            # Shuo Han: split the data_json into global_ngpu shards; skip the if exist check
+            log "Split ${data_json} into ${global_ngpu} shards for training"
+            ${python} pyscripts/utils/split_data_jsons.py \
+                --json_files ${data_json} \
+                --nj ${global_ngpu} \
+                --output_dir ${stats_dir}
 
-                for n in `seq ${global_ngpu}`; do
-                    filter_scp.pl ${stats_dir}/split${global_ngpu}/${n}/example_list ${stats_dir}/dec_seq_shape \
-                        > ${stats_dir}/split${global_ngpu}/${n}/dec_seq_shape &
-                    if [ -f ${stats_dir}/enc_seq_shape ]; then
-                        filter_scp.pl ${stats_dir}/split${global_ngpu}/${n}/example_list ${stats_dir}/enc_seq_shape \
-                            > ${stats_dir}/split${global_ngpu}/${n}/enc_seq_shape &
-                    fi
-                done; wait
-            fi
+            for n in `seq ${global_ngpu}`; do
+                filter_scp.pl ${stats_dir}/split${global_ngpu}/${n}/example_list ${stats_dir}/dec_seq_shape \
+                    > ${stats_dir}/split${global_ngpu}/${n}/dec_seq_shape &
+                if [ -f ${stats_dir}/enc_seq_shape ]; then
+                    filter_scp.pl ${stats_dir}/split${global_ngpu}/${n}/example_list ${stats_dir}/enc_seq_shape \
+                        > ${stats_dir}/split${global_ngpu}/${n}/enc_seq_shape &
+                fi
+            done; wait
+
         done
 
         # (3) aggregate all statistics

@@ -1,5 +1,5 @@
 # Model
-transformer: builtin
+transformer: builtin_diff_rope
 transformer_conf:
     n_ctx: 9000
     n_state: 512

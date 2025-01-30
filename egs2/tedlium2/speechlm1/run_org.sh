@@ -30,7 +30,9 @@ bpe_opts="--subword_choice sentencepiece --nbpe 5000"
     --train_set "${train_set}" \
     --valid_set "${valid_set}" \
     --test_sets "${test_sets}" \
-    --min_wav_duration 0.1 \
-    --max_wav_duration 30.0 \
+    --min_wav_duration 100.0 \
+    --max_wav_duration 120.0 \
     ${ssl_opts} ${bpe_opts} \
     "$@"
+
+# min_max_wav_duration is only useful for stage 2
