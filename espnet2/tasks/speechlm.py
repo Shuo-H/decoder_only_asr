@@ -9,6 +9,8 @@ from typeguard import typechecked
 
 # Transformer Implementation
 from espnet2.speechlm.module.builtin import TransformerDecoder
+from espnet2.speechlm.module.builtin_diff import DiffTransformerDecoder
+from espnet2.speechlm.module.builtin_diff_rope import DiffROPETransformerDecoder
 from espnet2.speechlm.module.huggingface import HFTransformerDecoder
 from espnet2.speechlm.module.abs_transformer import AbsTransformer
 
@@ -35,7 +37,7 @@ from espnet2.torch_utils.initialize import initialize
 # Others
 from espnet2.speechlm.loss import SpeechLMCrossEntropyLoss
 from espnet2.train.class_choices import ClassChoices
-from espnet2.train.collate_fn import CommonCollateFn
+from espnet2.train.collate_fn import CommonCollateFn, BucketCollateFn
 from espnet2.train.abs_espnet_model import AbsESPnetModel
 
 # Preprocessor
@@ -47,6 +49,8 @@ transformer_choices = ClassChoices(
     "transformer",
     classes=dict(
         builtin=TransformerDecoder,
+        builtin_diff=DiffTransformerDecoder,
+        builtin_diff_rope=DiffROPETransformerDecoder,
         huggingface=HFTransformerDecoder,
     ),
     type_check=AbsTransformer,
@@ -268,11 +272,20 @@ class SpeechLMTask(AbsTask):
         [Collection[Tuple[str, Dict[str, np.ndarray]]]],
         Tuple[List[str], Dict[str, torch.Tensor]],
     ]:
-        return CommonCollateFn(
-            int_pad_value=args.token_list.index("<pad>"),
-            not_process=["conti_feats"],
-            not_sequence=["prefix_len"],
-        )
+        if args.batch_type == "bucket":
+            return BucketCollateFn(
+                int_pad_value=args.token_list.index("<pad>"),
+                batch_bins=args.batch_bins,
+                batch_size=args.batch_size,
+                not_process=["conti_feats"],
+                not_sequence=["prefix_len"],
+            )
+        else:
+            return CommonCollateFn(
+                int_pad_value=args.token_list.index("<pad>"),
+                not_process=["conti_feats"],
+                not_sequence=["prefix_len"],
+            )
 
     @classmethod
     @typechecked
@@ -353,7 +366,7 @@ class SpeechLMTask(AbsTask):
         kwargs = dict()
         ### Build the model step-by-step
         # 1. Build Transformer decoder
-        if args.collect_stats:
+        if args.collect_stats: # Shuo: the default value is False
             # NOTE(Jinchuan): model will not in real use. Create a placeholder
             transformer = TransformerDecoder(token_bias=token_bias)
         else:
